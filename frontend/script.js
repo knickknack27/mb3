@@ -47,8 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         analyser.fftSize = 2048;
         const dataArray = new Uint8Array(analyser.fftSize);
         let silenceStart = null;
-        const SILENCE_THRESHOLD = 0.1; // Adjust as needed
-        const SILENCE_DURATION = 25000; // ms
+        const SILENCE_THRESHOLD = 0.03; // Lower threshold for more sensitivity
+        const SILENCE_DURATION = 2000; // 1 second of silence to auto-stop
 
         function checkSilence() {
             analyser.getByteTimeDomainData(dataArray);
@@ -167,8 +167,14 @@ document.addEventListener('DOMContentLoaded', () => {
             // Play Sarvam TTS audio if available as base64
             if (result.audioBase64) {
                 let audio = new Audio('data:audio/wav;base64,' + result.audioBase64);
+                updateStatus('Playing assistant reply...');
+                micButton.textContent = '🔈 Assistant Speaking';
+                micButton.classList.remove('recording');
                 audio.onended = () => {
                     if (isSessionActive) {
+                        micButton.textContent = '🎤 Mic Off (Listening...)';
+                        micButton.classList.add('recording');
+                        updateStatus('Listening... Speak now.');
                         startRecordingWithSilenceDetection();
                     }
                 };

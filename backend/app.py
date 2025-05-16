@@ -23,7 +23,9 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 SARVAM_ASR_URL = 'https://api.sarvam.ai/speech-to-text'
 SARVAM_TTS_URL = 'https://api.sarvam.ai/text-to-speech'
 OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
-DATA_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'data.txt')
+DATA_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'real_estate_cleaned_generalized.json')
+CARTESIA_API_KEY = os.getenv('CARTESIA_API_KEY')
+CARTESIA_TTS_URL = 'https://api.cartesia.ai/tts/bytes'
 
 # --- Logging ---
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -80,7 +82,7 @@ def read_data_txt():
         return "Error: Could not load knowledge base due to an exception."
 
 # --- Sarvam TTS: Get base64 audio from API ---
-def get_tts_audio_base64(text, language_code="hi-IN", speaker="karun"):
+def get_tts_audio_base64(text, language_code="kn-IN", speaker="karun"):
     headers = {
         "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json"
@@ -114,15 +116,40 @@ def translate_to_hindi(text):
     }
     payload = {
         "input": text,
-        "source_language_code": "auto",
-        "target_language_code": "hi-IN",
-        "enable_preprocessing": True
+        "source_language_code": "en-IN",
+        "target_language_code": "kn-IN"
     }
     response = requests.post("https://api.sarvam.ai/translate", json=payload, headers=headers)
     response.raise_for_status()
     data = response.json()
     # Assuming the translated text is in 'output' field
     return data.get('output', text)
+
+# --- Cartesia TTS: Get base64 audio from API ---
+def get_cartesia_tts_audio_base64(text, language_code="en", model_id="sonic-2", voice_id="1259b7e3-cb8a-43df-9446-30971a46b8b0"):
+    headers = {
+        "Cartesia-Version": "2024-06-10",
+        "X-API-Key": CARTESIA_API_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model_id": model_id,
+        "transcript": text,
+        "voice": {
+            "mode": "id",
+            "id": voice_id
+        },
+        "output_format": {
+            "container": "wav",
+            "encoding": "pcm_f32le",
+            "sample_rate": 44100
+        },
+        "language": language_code
+    }
+    response = requests.post(CARTESIA_TTS_URL, json=payload, headers=headers)
+    response.raise_for_status()
+    # Cartesia returns raw audio bytes, so encode to base64
+    return base64.b64encode(response.content).decode('utf-8')
 
 # --- Main API endpoint ---
 @app.route('/api/transcribe-and-chat', methods=['POST'])
@@ -186,16 +213,16 @@ def transcribe_and_chat():
         conversation_history.append({"role": "user", "content": transcribed_text})
         conversation_history.append({"role": "assistant", "content": assistant_reply})
 
-        # --- 4. TTS (Sarvam) ---
-        # Translate assistant reply to Hindi before TTS
+        # --- 4. Translate to Hindi, then TTS (Cartesia) ---
         translated_reply = translate_to_hindi(assistant_reply)
-        audio_base64 = get_tts_audio_base64(translated_reply, language_code="hi-IN", speaker="karun")
-        logging.info(f"TTS API base64 length: {len(audio_base64) if audio_base64 else 'None'}")
+        audio_base64 = get_cartesia_tts_audio_base64(translated_reply, language_code="en")
+        logging.info(f"Cartesia TTS API base64 length: {len(audio_base64) if audio_base64 else 'None'}")
 
         # --- 5. Respond to frontend ---
         return jsonify({
             "userTranscript": transcribed_text,
             "assistantReply": assistant_reply,
+            "assistantReplyHindi": translated_reply,
             "audioBase64": audio_base64
         })
 
