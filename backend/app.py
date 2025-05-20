@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from dotenv import load_dotenv
+import time
 
 # --- Load environment variables ---
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -23,18 +24,24 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 SARVAM_ASR_URL = 'https://api.sarvam.ai/speech-to-text'
 SARVAM_TTS_URL = 'https://api.sarvam.ai/text-to-speech'
 OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
-DATA_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'real_estate_cleaned_generalized.json')
-CARTESIA_API_KEY = os.getenv('CARTESIA_API_KEY')
-CARTESIA_TTS_URL = 'https://api.cartesia.ai/tts/bytes'
+DATA_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'data.txt')
 
 # --- Logging ---
-logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+log_file_path = os.path.join(os.path.dirname(__file__), 'output.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
+    ]
+)
 
 # --- System Prompt ---
 YOUR_APP_NAME = "Magic Bricks"
-SYSTEM_PROMPT_BASE = f"""You are an always-on voice assistant for {YOUR_APP_NAME}.
+SYSTEM_PROMPT_BASE = f"""
 Persona (Voice Agent):
-You are Raj, the friendly Magic Bricks real-estate voice assistant speaking in Hinglish.
+You are Raj, the friendly Magic Bricks real-estate voice assistant speaking in Telugu language.
 
 Objective:
 Guide callers through comparing homes and help them zero in on the perfect property based on budget and layout.
@@ -82,7 +89,7 @@ def read_data_txt():
         return "Error: Could not load knowledge base due to an exception."
 
 # --- Sarvam TTS: Get base64 audio from API ---
-def get_tts_audio_base64(text, language_code="kn-IN", speaker="karun"):
+def get_tts_audio_base64(text, language_code="hi-IN", speaker="karun"):
     headers = {
         "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json"
@@ -90,10 +97,8 @@ def get_tts_audio_base64(text, language_code="kn-IN", speaker="karun"):
     payload = {
         "text": text,
         "target_language_code": language_code,
-        "model": "bulbul:v2",
-        "speaker": speaker,
-        "enable_preprocessing": True,
-        "speech_sample_rate": 24000
+        "speech_sample_rate": 24000,
+        "enable_preprocessing":True
     }
     response = requests.post(SARVAM_TTS_URL, json=payload, headers=headers)
     logging.info(f"TTS API response: {response.text}")
@@ -109,7 +114,7 @@ def get_tts_audio_base64(text, language_code="kn-IN", speaker="karun"):
     return None
 
 # --- Sarvam Translate: Translate text to Hindi ---
-def translate_to_hindi(text):
+def translate_to_telugu(text):
     headers = {
         "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json"
@@ -117,39 +122,33 @@ def translate_to_hindi(text):
     payload = {
         "input": text,
         "source_language_code": "en-IN",
-        "target_language_code": "kn-IN"
+        "target_language_code": "hi-IN",
+        "enable_preprocessing": True,
+        "mode": "modern-colloquial",
+        "numerals_format": "international",
+        "speaker_gender": "Male"
     }
     response = requests.post("https://api.sarvam.ai/translate", json=payload, headers=headers)
     response.raise_for_status()
     data = response.json()
-    # Assuming the translated text is in 'output' field
     return data.get('output', text)
 
-# --- Cartesia TTS: Get base64 audio from API ---
-def get_cartesia_tts_audio_base64(text, language_code="en", model_id="sonic-2", voice_id="1259b7e3-cb8a-43df-9446-30971a46b8b0"):
+# --- Sarvam Translate: Translate text to English ---
+def translate_to_english(text):
     headers = {
-        "Cartesia-Version": "2024-06-10",
-        "X-API-Key": CARTESIA_API_KEY,
+        "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json"
     }
     payload = {
-        "model_id": model_id,
-        "transcript": text,
-        "voice": {
-            "mode": "id",
-            "id": voice_id
-        },
-        "output_format": {
-            "container": "wav",
-            "encoding": "pcm_f32le",
-            "sample_rate": 44100
-        },
-        "language": language_code
+        "input": text,
+        "source_language_code": "hi-IN",
+        "target_language_code": "en-IN",
+        "enable_preprocessing": True
     }
-    response = requests.post(CARTESIA_TTS_URL, json=payload, headers=headers)
+    response = requests.post("https://api.sarvam.ai/translate", json=payload, headers=headers)
     response.raise_for_status()
-    # Cartesia returns raw audio bytes, so encode to base64
-    return base64.b64encode(response.content).decode('utf-8')
+    data = response.json()
+    return data.get('output', text)
 
 # --- Main API endpoint ---
 @app.route('/api/transcribe-and-chat', methods=['POST'])
@@ -167,13 +166,16 @@ def transcribe_and_chat():
     logging.info(f"Received audio file: {audio_file.filename}, size: {len(audio_bytes)} bytes")
 
     try:
+        timings = {}
+        start_time = time.time()
         # --- 1. Transcription (Sarvam ASR) ---
+        t0 = time.time()
         files_asr = {
             'file': (audio_file.filename or 'recording.wav', audio_bytes, audio_file.mimetype)
         }
         asr_payload = {
             'model': 'saarika:v2',
-            'language_code': 'unknown'
+            'language_code': 'hi-IN'
         }
         headers_asr = {
             'api-subscription-key': SARVAM_API_KEY
@@ -181,21 +183,29 @@ def transcribe_and_chat():
         asr_response = requests.post(SARVAM_ASR_URL, files=files_asr, data=asr_payload, headers=headers_asr, timeout=20)
         asr_response.raise_for_status()
         asr_data = asr_response.json()
-        logging.info(f"Sarvam ASR Raw Response: {asr_data}")
         transcribed_text = asr_data.get('transcript') or asr_data.get('text')
+        timings['asr'] = time.time() - t0
+        logging.info(f"ASR step took {timings['asr']:.2f} seconds")
         if not transcribed_text:
             return jsonify({"error": "Failed to transcribe audio. No transcript returned.", "details": asr_data}), 500
 
-        # --- 2. LLM (OpenRouter) ---
+        # --- 2. Translate transcribed text to English ---
+        t0 = time.time()
+        translated_text = translate_to_english(transcribed_text)
+        timings['translate_to_english'] = time.time() - t0
+        logging.info(f"Translate to English step took {timings['translate_to_english']:.2f} seconds")
+
+        # --- 3. LLM (OpenRouter) ---
+        t0 = time.time()
         data_txt_content = read_data_txt()
         current_system_prompt = f"{SYSTEM_PROMPT_BASE}\n\nKnowledge base from data.txt:\n{data_txt_content}"
         messages_for_llm = [
             {"role": "system", "content": current_system_prompt},
             *conversation_history,
-            {"role": "user", "content": transcribed_text}
+            {"role": "user", "content": translated_text}
         ]
         llm_payload = {
-            "model": "openai/gpt-4o-mini",
+            "model": "google/gemini-2.0-flash-001",
             "messages": messages_for_llm,
         }
         headers_llm = {
@@ -206,24 +216,39 @@ def transcribe_and_chat():
         llm_response.raise_for_status()
         llm_data = llm_response.json()
         assistant_reply = llm_data.get('choices', [{}])[0].get('message', {}).get('content', '')
+        timings['llm'] = time.time() - t0
+        logging.info(f"LLM step took {timings['llm']:.2f} seconds")
         if not assistant_reply:
             return jsonify({"error": "LLM did not return content.", "details": llm_data}), 500
 
-        # --- 3. Memory Management ---
-        conversation_history.append({"role": "user", "content": transcribed_text})
+        # --- 4. Memory Management ---
+        conversation_history.append({"role": "user", "content": translated_text})
         conversation_history.append({"role": "assistant", "content": assistant_reply})
 
-        # --- 4. Translate to Hindi, then TTS (Cartesia) ---
-        translated_reply = translate_to_hindi(assistant_reply)
-        audio_base64 = get_cartesia_tts_audio_base64(translated_reply, language_code="en")
-        logging.info(f"Cartesia TTS API base64 length: {len(audio_base64) if audio_base64 else 'None'}")
+        # --- 5. Translate LLM reply to Telugu (for TTS) ---
+        t0 = time.time()
+        translated_reply = translate_to_telugu(assistant_reply)
+        timings['translate_to_telugu'] = time.time() - t0
+        logging.info(f"Translate to Telugu step took {timings['translate_to_telugu']:.2f} seconds")
 
-        # --- 5. Respond to frontend ---
+        # --- 6. TTS (Sarvam) ---
+        t0 = time.time()
+        audio_base64 = get_tts_audio_base64(translated_reply, language_code="hi-IN")
+        timings['tts'] = time.time() - t0
+        logging.info(f"TTS step took {timings['tts']:.2f} seconds")
+
+        total_time = time.time() - start_time
+        logging.info(f"Total /api/transcribe-and-chat time: {total_time:.2f} seconds")
+
+        # --- 7. Respond to frontend ---
         return jsonify({
             "userTranscript": transcribed_text,
+            "translatedTranscript": translated_text,
             "assistantReply": assistant_reply,
             "assistantReplyHindi": translated_reply,
-            "audioBase64": audio_base64
+            "audioBase64": audio_base64,
+            "timings": timings,
+            "totalTime": total_time
         })
 
     except Exception as e:
