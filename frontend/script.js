@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSessionActive = false;
     let isRecording = false;
     let audioContext, analyser, sourceNode, silenceTimer, stream;
-    const BACKEND_URL = 'http://localhost:5001/api/transcribe-and-chat'; // Ensure this matches your Python backend port
+    const BACKEND_URL = 'https://mb3s.onrender.com/api/transcribe-and-chat'; // Ensure this matches your Python backend port
 
     // --- UI Update Functions ---
     function updateStatus(message) {
