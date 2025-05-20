@@ -160,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             displayTranscription(result.userTranscript);
             displayAssistantResponse(result.assistantReply);
-            addToConversationLog('user', result.userTranscript);
+            addToConversationLog('user', result.translatedTranscript);
             addToConversationLog('assistant', result.assistantReply);
             updateStatus('Playing assistant reply...');
 
