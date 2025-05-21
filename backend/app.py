@@ -41,7 +41,7 @@ logging.basicConfig(
 YOUR_APP_NAME = "Magic Bricks"
 SYSTEM_PROMPT_BASE = f"""
 Persona (Voice Agent):
-You are Raj, the friendly Magic Bricks real-estate voice assistant speaking in Telugu language.
+You are Raj, the friendly Magic Bricks real-estate voice assistant speaking in English language.
 
 Objective:
 Guide callers through comparing homes and help them zero in on the perfect property based on budget and layout.
@@ -89,7 +89,7 @@ def read_data_txt():
         return "Error: Could not load knowledge base due to an exception."
 
 # --- Sarvam TTS: Get base64 audio from API ---
-def get_tts_audio_base64(text, language_code="hi-IN", speaker="karun"):
+def get_tts_audio_base64(text, language_code="hi-IN", speaker="hitesh"):
     headers = {
         "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json"
@@ -97,11 +97,10 @@ def get_tts_audio_base64(text, language_code="hi-IN", speaker="karun"):
     payload = {
         "text": text,
         "target_language_code": language_code,
-        "speech_sample_rate": 24000,
-        "enable_preprocessing":True
+        "speech_sample_rate": 24000
     }
     response = requests.post(SARVAM_TTS_URL, json=payload, headers=headers)
-    logging.info(f"TTS API response: {response.text}")
+    #logging.info(f"TTS API response: {response.text}")
     response.raise_for_status()
     try:
         data = response.json()
@@ -123,8 +122,6 @@ def translate_to_telugu(text):
         "input": text,
         "source_language_code": "en-IN",
         "target_language_code": "hi-IN",
-        "enable_preprocessing": True,
-        "mode": "modern-colloquial",
         "numerals_format": "international",
         "speaker_gender": "Male"
     }
@@ -180,10 +177,11 @@ def transcribe_and_chat():
         headers_asr = {
             'api-subscription-key': SARVAM_API_KEY
         }
-        asr_response = requests.post(SARVAM_ASR_URL, files=files_asr, data=asr_payload, headers=headers_asr, timeout=20)
+        asr_response = requests.post(SARVAM_ASR_URL, files=files_asr, data=asr_payload, headers=headers_asr, timeout=60)
         asr_response.raise_for_status()
         asr_data = asr_response.json()
         transcribed_text = asr_data.get('transcript') or asr_data.get('text')
+        logging.info(f"Transcribed user input: {transcribed_text}")
         timings['asr'] = time.time() - t0
         logging.info(f"ASR step took {timings['asr']:.2f} seconds")
         if not transcribed_text:
@@ -230,10 +228,11 @@ def transcribe_and_chat():
         translated_reply = translate_to_telugu(assistant_reply)
         timings['translate_to_telugu'] = time.time() - t0
         logging.info(f"Translate to Telugu step took {timings['translate_to_telugu']:.2f} seconds")
+        logging.info(f"Output: {assistant_reply}")
 
         # --- 6. TTS (Sarvam) ---
         t0 = time.time()
-        audio_base64 = get_tts_audio_base64(translated_reply, language_code="hi-IN")
+        audio_base64 = get_tts_audio_base64(translated_reply, language_code="hi-IN", speaker="hitesh")
         timings['tts'] = time.time() - t0
         logging.info(f"TTS step took {timings['tts']:.2f} seconds")
 
